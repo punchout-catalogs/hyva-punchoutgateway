@@ -1,0 +1,105 @@
+<?php
+/** @var \Magento\Framework\View\Element\Template $block */
+?>
+<script>
+    (function() {
+        'use strict';
+
+        //check for punchout data
+        const config = window.checkoutConfig;
+        if (!config || !config.is_punchout || !config.punchout) {
+            return;
+        }
+        const po = config.punchout;
+
+        //set method and code
+        if (po.selected_shipping_rate) {
+            config.selectedShippingMethod = {
+                carrier_code: po.selected_shipping_rate.carrier_code || po.selected_shipping_rate.carrier,
+                method_code: po.selected_shipping_rate.method_code || po.selected_shipping_rate.method
+            };
+        }
+
+        //get storage values
+        try {
+            const rawStorage = localStorage.getItem('mage-cache-storage');
+            let storage = rawStorage ? JSON.parse(rawStorage) : {};
+
+            //check for cart and checkout data
+            if (!storage['cart-data']) storage['cart-data'] = {};
+            if (!storage['checkout-data']) storage['checkout-data'] = {};
+
+            //set data in storage from the punchout session
+            if (po.shipping) {
+                storage['checkout-data'].shippingAddressFromData = po.shipping;
+                storage['cart-data'].address = {
+                    countryId: po.shipping.country_id,
+                    regionId: po.shipping.region_id,
+                    postcode: po.shipping.postcode
+                };
+                localStorage.setItem('mage-cache-storage', JSON.stringify(storage));
+            }
+        } catch (e) {
+            console.warn('Punchout Resolver: Storage sync failed', e);
+        }
+
+        //make changes specifically for inspect mode
+        if (po.operation === 'inspect') {
+            const applyLock = () => {
+                const selectors = 'input, button:not(.punchout-actions button), select, textarea, .qty-updater, a';
+                document.querySelectorAll(selectors).forEach(el => {
+                    if (!el.closest('.punchout-actions')) {
+                        // We use a CSS class and pointer-events for safety
+                        el.style.pointerEvents = 'none';
+                        el.style.opacity = '0.6';
+                        el.setAttribute('tabindex', '-1');
+                        if (el.tagName !== 'A') el.disabled = true;
+                    }
+                });
+            };
+
+            //we can run this quickly a couple times to catch elements rendered late
+            applyLock();
+            window.addEventListener('DOMContentLoaded', applyLock);
+            window.addEventListener('private-content-loaded', () => setTimeout(applyLock, 200));
+        }
+    })();
+
+    //cart button actions
+    function punchoutActions(submitUrl, cancelUrl, isHardDisabled) {
+        return {
+            submitUrl: submitUrl,
+            cancelUrl: cancelUrl,
+            isLoading: false,
+            isHardDisabled: !!isHardDisabled,
+            isAvailable: !!(window.checkoutConfig?.punchout?.is_available),
+            processPunchout() {
+                if (this.isAvailable && !this.isLoading && !this.isHardDisabled) {
+                    this.isLoading = true;
+                    window.location.href = this.submitUrl;
+                }
+            },
+            processCancel() {
+                if (!this.isLoading) {
+                    this.isLoading = true;
+                    window.location.href = this.cancelUrl;
+                }
+            }
+        }
+    }
+
+    //inspect button action
+    function punchoutInspect(cancelUrl, isHardDisabled) {
+        return {
+            cancelUrl: cancelUrl,
+            isLoading: false,
+            isHardDisabled: !!isHardDisabled,
+            processReturn() {
+                if (!this.isLoading) {
+                    this.isLoading = true;
+                    window.location.href = this.cancelUrl;
+                }
+            }
+        }
+    }
+</script>

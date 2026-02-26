@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © Vendor. All rights reserved.
+ * 
+ * This file declares compatibility with Hyva themes
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Hyva_Theme:etc/hyva-themes.xsd">
+    <!-- Declare compatibility -->
+    <compatibility>
+        <module name="Hyva_PunchoutGateway"/>
+    </compatibility>
+</config>

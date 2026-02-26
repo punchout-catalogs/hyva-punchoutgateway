@@ -1,0 +1,418 @@
+<?php
+declare(strict_types=1);
+
+use Hyva\Theme\Model\ViewModelRegistry;
+use Hyva\Theme\ViewModel\LucideIcons;
+use Hyva\Theme\ViewModel\HyvaCsp;
+use Hyva\Theme\ViewModel\Cart\TotalsOutput;
+use Magento\Checkout\Block\Cart\Shipping;
+use Magento\Framework\Escaper;
+
+/** @var Escaper $escaper */
+/** @var Shipping $block */
+/** @var ViewModelRegistry $viewModels */
+
+$checkoutConfig = $block->getCheckoutConfig();
+$isPunchout = !empty($checkoutConfig['is_punchout']);
+$manageAddress = !empty($checkoutConfig['punchout']['manage_address']);
+
+$shouldShowShipping = !$isPunchout || $manageAddress;
+if (!$shouldShowShipping) {
+    return;
+}
+
+/** @var HyvaCsp $hyvaCsp */
+$hyvaCsp = $viewModels->require(HyvaCsp::class);
+/** @var LucideIcons $lucideIcons */
+$lucideIcons = $viewModels->require(LucideIcons::class);
+/** @var TotalsOutput $totalsOutput */
+$totalsOutput = $viewModels->require(TotalsOutput::class);
+
+$showIcon = $block->getShowIcon() ?? true;
+?>
+
+<script>
+    function initShippingEstimation(){
+        const isPunchoutSession = !!(window.checkoutConfig && window.checkoutConfig.is_punchout);
+
+        return {
+            showEstimateShipping: false,
+            cart: false,
+            cartIsVirtual: <?= (int) $block->getQuote()->isVirtual() ?>,
+            customer: false,
+            availableShippingMethods: [],
+            isLoading: false,
+            cartData: {
+                address: {
+                    countryId: window.checkoutConfig.defaultCountryId || 'US',
+                    regionId: window.checkoutConfig.defaultRegionId || 0,
+                    postcode: window.checkoutConfig.defaultPostcode || ''
+                },
+                cartVersion: Math.floor(Date.now()/1000),
+                rates: [],
+                shippingCarrierCode: null,
+                shippingMethodCode: null,
+            },
+            checkoutData: {
+                shippingAddressFromData: {}
+            },
+            directoryData: false,
+            shippingMethod: false,
+
+            resolveShippingMethod() {
+                const poRate = window.checkoutConfig.punchout?.selected_shipping_rate;
+                const standardRate = window.checkoutConfig.selectedShippingMethod;
+                const quoteRate = window.checkoutConfig.quoteData?.shipping_address?.shipping_method;
+
+                let cCode, mCode;
+
+                //get the method and carrier from pucnhout
+                if (typeof poRate === 'string' && poRate.includes('_')) {
+                    const parts = poRate.split('_');
+                    cCode = parts[0];
+                    mCode = poRate.replace(cCode + '_', ''); // Handles methods with multiple underscores
+                } else if (typeof poRate === 'object' && poRate !== null) {
+                    cCode = poRate.carrier_code || poRate.carrier;
+                    mCode = poRate.method_code || poRate.method;
+                }
+
+                //fallback
+                if (!cCode || !mCode) {
+                    cCode = standardRate?.carrier_code;
+                    mCode = standardRate?.method_code;
+                }
+
+                //assign the shipping method
+                if (cCode && mCode) {
+                    this.shippingMethod = `${cCode}_${mCode}`;
+                } else if (quoteRate && quoteRate !== '_' && quoteRate !== 'undefined_undefined') {
+                    this.shippingMethod = quoteRate;
+                }
+            },
+
+            init() {
+                const operation = window.checkoutConfig.punchout?.operation;
+                
+                //get address data
+                const poShipping = window.checkoutConfig.punchout?.shipping;
+                const configAddress = window.checkoutConfig.shippingAddressFromData;
+
+                //set address data to cart data depending on where we got the address from
+                if (poShipping) {
+                    this.cartData.address.countryId = poShipping.country_id || this.cartData.address.countryId;
+                    this.cartData.address.regionId = poShipping.region_id || this.cartData.address.regionId;
+                    this.cartData.address.postcode = poShipping.postcode || this.cartData.address.postcode;
+                } else if (configAddress) {
+                    this.cartData.address.countryId = Array.isArray(configAddress.country_id) ? configAddress.country_id[0] : configAddress.country_id;
+                    this.cartData.address.postcode = Array.isArray(configAddress.postcode) ? configAddress.postcode[0] : configAddress.postcode;
+                    this.cartData.address.regionId = Array.isArray(configAddress.region_id) ? configAddress.region_id[0] : configAddress.region_id;
+                }
+
+                //get/set shipping method
+                this.resolveShippingMethod();
+
+                //get the hyva showEstimatedShipping
+                const browserStorageShowEstimateShipping = hyva.getBrowserStorage().getItem('hyva.showEstimateShipping');
+
+                //open it for create/edit sessions
+                const isCreateOrEdit = !operation || operation === 'create' || operation === 'edit';
+                this.showEstimateShipping = browserStorageShowEstimateShipping === 'true' || isCreateOrEdit;
+
+                //if we can, set shipping method
+                if (this.cartData.address.countryId) {
+                    setTimeout(() => {
+                        // Crucial: Always re-sync right before fetching to ensure shippingMethod isn't 'false'
+                        this.resolveShippingMethod();
+                        
+                        if (this.showEstimateShipping) {
+                            this.fetchShippingMethods();
+                        } else {
+                            // This is for INSPECT mode
+                            this.fetchTotals();
+                        }
+                    }, 150);
+                }
+            },
+
+            toggleEstimateShipping() {
+                this.showEstimateShipping = !this.showEstimateShipping;
+                hyva.getBrowserStorage().setItem('hyva.showEstimateShipping', this.showEstimateShipping);
+                if (this.showEstimateShipping) {
+                    this.fetchShippingMethods();
+                }
+            },
+
+            fetchShippingMethods() {
+                if (this.abortShippingController) this.abortShippingController.abort();
+                this.isLoading = true;
+                this.$dispatch('update-shipping-method-start', {});
+
+                //get customer data
+                const isLoggedIn = !!(this.customer && this.customer.fullname);
+                const cartId = this.cart?.cartId || window.checkoutConfig.quoteData?.entity_id;
+
+                //use /mine for a logged in user
+                const useMinePath = isLoggedIn || window.checkoutConfig?.quoteData?.customer_id;
+                const path = useMinePath
+                    ? '/V1/carts/mine/estimate-shipping-methods'
+                    : `/V1/guest-carts/${cartId}/estimate-shipping-methods`;
+
+                this.abortShippingController = new AbortController();
+
+                fetch(BASE_URL + 'rest/' + CURRENT_STORE_CODE + path, {
+                    signal: this.abortShippingController.signal,
+                    method: 'post',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ address: this.cartData.address })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    this.availableShippingMethods = Array.isArray(result) ? result : [];
+
+                    //do we have a match?
+                    const currentMatch = this.availableShippingMethods.find(m => 
+                        (m.carrier_code + '_' + m.method_code) === this.shippingMethod
+                    );
+
+                    //clear method if not in punchout
+                    if (!currentMatch && !isPunchoutSession) {
+                        this.shippingMethod = false;
+                    }
+                })
+                .catch(this.displayError)
+                .finally(() => {
+                    this.$dispatch('update-shipping-method-end', {});
+                    //double check selection
+                    if (isPunchoutSession && !this.shippingMethod) {
+                        this.resolveShippingMethod();
+                    }
+                    this.fetchTotals();
+                    this.isLoading = false;
+                });
+            },
+
+            updateShippingMethod() {
+                this.$dispatch('update-shipping-method', {method: this.shippingMethod});
+                this.fetchTotals();
+            },
+
+            fetchTotals() {
+                if (this.abortTotalsController) this.abortTotalsController.abort();
+                this.$dispatch('update-totals-start', {});
+
+                let carrierCode = null;
+                let methodCode = null;
+
+                if (this.shippingMethod) {
+                    const split = this.shippingMethod.split('_');
+                    carrierCode = split[0];
+                    methodCode = this.shippingMethod.replace(carrierCode + '_', '') || null;
+                }
+                
+                const path = this.customer && this.customer.fullname
+                    ? '/V1/carts/mine/totals-information'
+                    : '/V1/guest-carts/' + (this.cart?.cartId || window.checkoutConfig.quoteData?.entity_id) + '/totals-information';
+
+                this.abortTotalsController = new AbortController();
+
+                fetch(BASE_URL + 'rest/' + CURRENT_STORE_CODE + path, {
+                    signal: this.abortTotalsController.signal,
+                    method: 'post',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        addressInformation: {
+                            shipping_carrier_code: carrierCode,
+                            shipping_method_code: methodCode,
+                            address: {
+                                countryId: this.cartData.address.countryId,
+                                postcode: this.cartData.address.postcode,
+                                regionId: this.cartData.address.regionId
+                            }
+                        }
+                    })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (window.checkoutConfig?.totalsData && result?.total_segments) {
+                        const configTotals = window.checkoutConfig.totalsData.total_segments || [];
+                        result.total_segments.forEach(total => {
+                            const match = configTotals.find(c => c.code === total.code);
+                            if (match) total.title = match.title;
+                        });
+                    }
+                    this.$dispatch('update-totals', {data: result});
+                })
+                .catch(this.displayError)
+                .finally(() => {
+                    this.$dispatch('update-totals-end', {});
+                });
+            },
+
+            receiveCustomerData(data) {
+                if (data.cart) this.cart = data.cart;
+                if (data.customer) this.customer = data.customer;
+                if (data['directory-data']) this.directoryData = data['directory-data'];
+                if (data['cart-data']) this.cartData = data['cart-data'];
+                if (data['checkout-data']) {
+                    this.checkoutData = data['checkout-data'];
+                    this.populateCartData();
+                }
+
+                if (isPunchoutSession) {
+                    this.resolveShippingMethod();
+                    if (this.availableShippingMethods.length > 0 || !this.showEstimateShipping) {
+                        this.fetchTotals();
+                    }
+                }
+            },
+
+            setCountry(countryId){
+                this.cartData.address = { countryId: countryId, region: "", postcode: null };
+                this.saveToCustomerSectionData();
+                this.fetchShippingMethods();
+            },
+            setRegion(value, type){
+                if (type === 'select') {
+                    const countryId = this.cartData.address.countryId;
+                    const regionId = value || 0;
+                    const regionData = this.directoryData[countryId]?.regions[regionId] || { code: '', name: ''};
+                    this.cartData.address.regionId = regionId;
+                    this.cartData.address.region = regionData.name;
+                } else {
+                    this.cartData.address.region = value;
+                }
+                this.saveToCustomerSectionData();
+                this.fetchShippingMethods();
+            },
+            setPostcode(value){
+                this.cartData.address.postcode = value;
+                this.saveToCustomerSectionData();
+                this.fetchShippingMethods();
+            },
+            saveToCustomerSectionData(){
+                const storage = JSON.parse(localStorage.getItem('mage-cache-storage')) || {};
+                storage['cart-data'] = { address: this.cartData.address };
+                localStorage.setItem('mage-cache-storage', JSON.stringify(storage));
+            },
+            populateCartData() {
+                const checkoutAddress = this.checkoutData?.shippingAddressFromData || {};
+                if (Object.keys(checkoutAddress).length) {
+                    this.cartData.address.countryId = checkoutAddress['country_id'] || this.cartData.address.countryId;
+                    this.cartData.address.postcode = checkoutAddress['postcode'] || this.cartData.address.postcode;
+                }
+            },
+            getSortedCountries(){
+                if(!this.directoryData) return [];
+                return Object.keys(this.directoryData)
+                    .filter(k => k !== 'data_id' && this.directoryData[k].name)
+                    .sort((a,b) => this.directoryData[a].name.localeCompare(this.directoryData[b].name))
+                    .map(id => ({ id: id, name: this.directoryData[id].name }));
+            },
+            getEstimatedShippingRateCarriers() {
+                return Array.from(new Set(this.availableShippingMethods.map(rate => rate.carrier_title)));
+            },
+            getRatesForCarrier(carrierTitle) {
+                return this.availableShippingMethods.filter(rate => rate.carrier_title === carrierTitle);
+            },
+            getAvailableRegions() {
+                const c = this.cartData.address.countryId;
+                if (c && this.directoryData[c]?.regions){
+                    return Object.keys(this.directoryData[c].regions).map(id => ({
+                        id: id,
+                        name: this.directoryData[c].regions[id].name
+                    }));
+                }
+                return [];
+            },
+            hasAvailableRegions() {
+                return this.getAvailableRegions().length > 0;
+            },
+            displayError(error) {
+                if (error.name !== 'AbortError') console.error(error);
+            }
+        }
+    }
+
+    window.addEventListener('alpine:init', () => {
+        Alpine.data('initShippingEstimation', initShippingEstimation)
+    }, { once: true });
+</script>
+<?php $hyvaCsp->registerInlineScript() ?>
+
+<details
+    id="block-shipping"
+    class="estimate-shipping-form group border-t border-gray-200"
+    x-data="initShippingEstimation()"
+    @private-content-loaded.window="receiveCustomerData($event.detail.data)"
+    :open="showEstimateShipping"
+>
+    <summary
+        @click.prevent="toggleEstimateShipping"
+        class="list-none flex justify-between items-center gap-2 py-2 font-semibold cursor-pointer"
+    >
+        <span class="inline-flex items-center gap-2">
+            <?= $showIcon ? $lucideIcons->giftHtml('text-primary', 20, 20, ['aria-hidden' => 'true']) : ''; ?>
+            <?= $block->getQuote()->isVirtual()
+                ? $escaper->escapeHtml(__('Estimate Tax'))
+                : $escaper->escapeHtml(__('Estimate Shipping and Tax'))
+            ?>
+        </span>
+        <?= $lucideIcons->chevronDownHtml('transform group-open:rotate-180', 20, 20, ['aria-hidden' => 'true']); ?>
+    </summary>
+    <div class="mb-4">
+        <form method="post" id="shipping-zip-form" @submit.prevent="fetchTotals()">
+            <fieldset class="fieldset estimate">
+                <div class="field mt-2">
+                    <label class="label">
+                        <span class="text-sm"><?= $escaper->escapeHtml(__('Country')) ?></span>
+                        <select class="form-select w-full mt-1" @change.debounce="setCountry($event.target.value)">
+                            <option value=""></option>
+                            <template x-for="country in getSortedCountries()" :key="country.id">
+                                <option :value="country.id" x-text="country.name" :selected="country.id == cartData.address.countryId"></option>
+                            </template>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="field mt-2">
+                    <template x-if="hasAvailableRegions()">
+                        <label class="label">
+                            <span class="text-sm"><?= $escaper->escapeHtml(__('State/Province')) ?></span>
+                            <select class="form-select w-full mt-1" @change.debounce="setRegion($event.target.value, 'select')">
+                                <option value=""><?= $escaper->escapeHtml(__('Select a region')) ?></option>
+                                <template x-for="region in getAvailableRegions()" :key="region.id">
+                                    <option :value="region.id" x-text="region.name" :selected="region.id == cartData.address.regionId"></option>
+                                </template>
+                            </select>
+                        </label>
+                    </template>
+                </div>
+
+                <div class="field mt-2">
+                    <label class="label">
+                        <span class="text-sm"><?= $escaper->escapeHtml(__('Zip/Postal Code'))?></span>
+                        <input class="form-input w-full mt-1" type="text" @input.debounce.1000ms="setPostcode($event.target.value)" :value="cartData.address.postcode">
+                    </label>
+                </div>
+
+                <template x-if="getEstimatedShippingRateCarriers().length > 0">
+                    <div class="relative mt-4 border-t border-gray-100 pt-4" role="radiogroup">
+                        <template x-for="carrier in getEstimatedShippingRateCarriers()" :key="carrier">
+                            <div class="mb-3">
+                                <p><strong class="font-medium text-sm" x-text="carrier"></strong></p>
+                                <template x-for="(rate, index) in getRatesForCarrier(carrier)" :key="index">
+                                    <label class="flex items-center gap-2 cursor-pointer mt-1 py-1">
+                                        <input type="radio" :value="rate.carrier_code + '_' + rate.method_code" x-model="shippingMethod" @change="updateShippingMethod()" class="form-radio text-primary">
+                                        <span x-text="rate.method_title" class="text-sm text-gray-700"></span>
+                                        <span class="ml-auto text-sm font-medium" x-text="hyva.formatPrice(rate.price_incl_tax)"></span>
+                                    </label>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </fieldset>
+        </form>
+    </div>
+</details>
+<?= $block->getChildHtml() ?>

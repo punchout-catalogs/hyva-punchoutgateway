@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © Vendor. All rights reserved.
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+    <module name="Hyva_PunchoutGateway" setup_version="1.0.0">
+        <sequence>
+            <module name="Punchout_Gateway"/>
+            <module name="Hyva_Theme"/>
+        </sequence>
+    </module>
+</config>

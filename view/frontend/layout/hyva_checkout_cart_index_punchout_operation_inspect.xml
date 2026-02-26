@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <remove src="Punchout_Gateway::js/punchout-operation-inspect.js"/>
+    </head>
+
+    <body>
+        <referenceContainer name="checkout.cart.methods">
+            <block class="Punchout\Gateway\Block\Checkout\Buttons\Operation\Inspect"
+                   name="checkout.cart.methods.punchout.buttons"
+                   template="Hyva_PunchoutGateway::hyva/checkout/buttons/operation/inspect.phtml"
+            />
+        </referenceContainer>
+
+        <referenceBlock name="checkout.cart.crosssell" remove="true" />
+    </body>
+</page>

@@ -1,0 +1,27 @@
+<?php
+/** @var \Punchout\Gateway\Block\Checkout\Buttons\Operation\Edit $block */
+$submitUrl = $block->getSubmitUrl();
+$cancelUrl = $block->getCancelUrl();
+$isInitiallyDisabled = $block->isDisabled();
+?>
+
+<div class="punchout-actions flex flex-col gap-4" 
+     x-data="punchoutActions('<?= $block->escapeUrl($submitUrl) ?>', '<?= $block->escapeUrl($cancelUrl) ?>', <?= $isInitiallyDisabled ? 'true' : 'false' ?>)">
+    
+    <button type="button"
+            @click="processPunchout"
+            :disabled="!isAvailable || isLoading || isHardDisabled"
+            :class="{ 'opacity-50 cursor-not-allowed': !isAvailable || isLoading || isHardDisabled }"
+            class="action primary btn btn-primary w-full justify-center">
+        <span x-show="!isLoading"><?= $block->escapeHtml(__('Checkout')) ?></span>
+        <span x-show="isLoading"><?= $block->escapeHtml(__('Processing...')) ?></span>
+    </button>
+
+    <button type="button"
+            @click="processCancel"
+            :disabled="isLoading || isHardDisabled"
+            :class="{ 'opacity-50 cursor-not-allowed': isLoading || isHardDisabled }"
+            class="action btn btn-secondary w-full justify-center">
+        <span><?= $block->escapeHtml(__('Cancel & Return')) ?></span>
+    </button>
+</div>
