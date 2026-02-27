@@ -7,7 +7,7 @@ A skeleton module for creating Hyva theme compatibility extensions for Magento 2
 ### Via Composer (Recommended)
 
 ```bash
-composer require vendor/magento2-hyva-compatibility
+composer require punchout-catalogs/hyva-punchoutgateway
 php bin/magento module:enable Hyva_PunchoutGateway
 php bin/magento setup:upgrade
 php bin/magento setup:di:compile
@@ -31,7 +31,7 @@ php bin/magento cache:flush
 ## Module Structure
 
 ```
-Vendor_HyvaCompatibility/
+Hyva_PunchoutGateway/
 ├── etc/
 │   ├── module.xml                    # Module declaration
 │   ├── hyva-themes.xml              # Hyva compatibility declaration

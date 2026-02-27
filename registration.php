@@ -1,7 +1,4 @@
 <?php
-/**
- * Copyright © Vendor. All rights reserved.
- */
 
 use Magento\Framework\Component\ComponentRegistrar;
 
