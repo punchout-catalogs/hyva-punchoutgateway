@@ -15,19 +15,6 @@ php bin/magento setup:static-content:deploy
 php bin/magento cache:flush
 ```
 
-### Manual Installation
-
-1. Create directory: `app/code/Hyva/PunchoutGateway`
-2. Copy all files to this directory
-3. Run:
-```bash
-php bin/magento module:enable Hyva_PunchoutGateway
-php bin/magento setup:upgrade
-php bin/magento setup:di:compile
-php bin/magento setup:static-content:deploy
-php bin/magento cache:flush
-```
-
 ## Module Structure
 
 ```
