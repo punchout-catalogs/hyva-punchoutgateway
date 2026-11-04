@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <section id="hyva_punchoutgateway" 
+                 translate="label" 
+                 type="text" 
+                 sortOrder="400" 
+                 showInDefault="1" 
+                 showInWebsite="1" 
+                 showInStore="1">
+            <class>separator-top</class>
+            <label>Hyva</label>
+            <tab>punchout_gateway</tab>
+            <resource>Punchout_Gateway::config_punchout_gateway</resource>
+
+            <group id="general" 
+                   translate="label" 
+                   type="text" 
+                   sortOrder="100" 
+                   showInDefault="1" 
+                   showInWebsite="1" 
+                   showInStore="1">
+
+                <label>General Hyva Settings</label>
+
+                <field id="module_version" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="0" showInStore="0" canRestore="0">
+                    <label>Module Version</label>
+                    <frontend_model>Hyva\PunchoutGateway\Block\Adminhtml\System\Config\Form\Field\Version</frontend_model>
+                </field>
+
+                <field id="detect_hyva" translate="label comment tooltip" type="select" sortOrder="200" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+                    <label>Detect Hyva Theme</label>
+                    <comment>Applies this extension when theme code contains "hyva"</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+
+                <field id="additional_themes" translate="label comment" type="textarea" sortOrder="300" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+                    <label>Apply to Additional Themes</label>
+                    <comment>List of theme paths/codes separated by a new line</comment>
+                </field>
+
+            </group>
+        </section>
+    </system>
+</config>
